@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from datetime import datetime, timedelta
 from PIL import Image
 from hdfs.ext.kerberos import KerberosClient
 from io import BytesIO
@@ -10,7 +11,7 @@ from subprocess import check_call
 from sys import argv
 
 
-def addMap(outDir, image, satLongitude, xmin, xmax, ymin, ymax):
+def addMap(outDir, image, satLongitude, xmin, xmax, ymin, ymax, dt):
     plt.switch_backend('agg')
     plt.figure(figsize=(25, 15), dpi=100)
     m = Basemap(projection='geos', lon_0=satLongitude,
@@ -21,6 +22,7 @@ def addMap(outDir, image, satLongitude, xmin, xmax, ymin, ymax):
     m.drawcoastlines()
     m.drawcountries()
     m.drawstates()
+    # plt.title('GOES-16 Pseudo Color\n%s' % dt.strftime('%B %d, %Y UTC'))
     buf = BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
     buf.seek(0)
@@ -30,8 +32,7 @@ def addMap(outDir, image, satLongitude, xmin, xmax, ymin, ymax):
     buf.close()
 
 
-def transform(outDir, image, x, y):
-    #check_call(["kinit", "-kt", "brad.keytab", "brad@GPS.STTHOMAS.EDU"], shell=True)
+def transform(outDir, image, x, y, dt):
     plt.switch_backend('agg')
     plt.figure(figsize=(25, 15), dpi=100)
     p = Proj(proj='geos', h=satHeight, lon_0=satLongitude, sweep=satSweep)
@@ -51,6 +52,7 @@ def transform(outDir, image, x, y):
     mH.drawstates()
     mH.drawcountries()
     mH.drawcoastlines()
+    # plt.title('GOES-16 Pseudo Color\n%s' % dt.strftime('%B %d, %Y UTC'))
     buf = BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
     buf.seek(0)
@@ -62,10 +64,10 @@ def transform(outDir, image, x, y):
 
 sc = SparkContext(appName="color")
 sqlContext = SQLContext(sc)
-df = sqlContext.read.parquet('satMetadata.parquet')
 inputDir = argv[1]
 outputDir = argv[2]
 numPartitions = int(argv[3])
+df = sqlContext.read.parquet(inputDir + '/satMetadata.parquet')
 first = df.first()
 satHeight = first[2]
 x = list(map(lambda x: x * satHeight, first[0]))
@@ -77,9 +79,11 @@ ymax = max(y)
 satLongitude = first[3]
 satSweep = first[4]
 date = first[5]
-images = sc.binaryFiles(inputDir, numPartitions)
-image_to_array = lambda rawdata: np.asarray(Image.open(BytesIO(rawdata)))
-imageArrays = images.mapValues(image_to_array).mapValues(lambda x: x.astype(np.uint8))
+add_seconds = date
+displayDate = datetime(2000, 1, 1, 12) + timedelta(seconds=add_seconds)
+images = sc.binaryFiles(inputDir + '/*.png', numPartitions)
+imageToArray = lambda rawdata: np.asarray(Image.open(BytesIO(rawdata))).astype(np.uint8)
+imageArrays = images.mapValues(imageToArray)
 imageArrays.foreachPartition( lambda x: check_call(["kinit", "-kt", "brad.keytab", "brad@GPS.STTHOMAS.EDU"] ))
-# imageArrays.map(lambda image: addMap(outputDir, image, satLongitude, xmin, xmax, ymin, ymax)).collect()
-imageArrays.map(lambda image: transform(outputDir, image, x, y)).collect()
+imageArrays.map(lambda image: addMap(outputDir, image, satLongitude, xmin, xmax, ymin, ymax, displayDate)).collect()
+imageArrays.map(lambda image: transform(outputDir, image, x, y, displayDate)).collect()

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 
-hadoop fs -rm -skipTrash testOut/*
+inputDir=colorOut
+outputDir=testOut
+numPartitions=15
+mapMovie=colorMap
+transformMovie=colorTransform
+
+hadoop fs -rm -skipTrash $outputDir/*
 rm map/*
 rm transform/*
 
@@ -14,14 +20,14 @@ PYSPARK_PYTHON=/opt/miniconda3/envs/pyspark/bin/python \
    --driver-memory 6G \
    --files /home/brad/brad.keytab \
    color.py \
-   colorOut \
-   testOut \
-   15
+   $inputDir \
+   $outputDir \
+   $numPartitions
 
-hadoop fs -get testOut/M* map
-hadoop fs -get testOut/T* transform
+hadoop fs -get $outputDir/M* map
+hadoop fs -get $outputDir/T* transform
 
-rm colorMap.mp4
-rm colorTransform.mp4
-cat map/*.png | ffmpeg -f image2pipe -r 10 -i - -c:v libx264 -pix_fmt yuv420p colorMap.mp4
-cat transform/*.png | ffmpeg -f image2pipe -r 10 -i - -c:v libx264 -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" colorTransform.mp4
+rm $mapMovie.mp4
+rm $transformMovie.mp4
+cat map/*.png | ffmpeg -f image2pipe -r 10 -i - -c:v libx264 -pix_fmt yuv420p $mapMovie.mp4
+cat transform/*.png | ffmpeg -f image2pipe -r 10 -i - -c:v libx264 -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" $transformMovie.mp4
